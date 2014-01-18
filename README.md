@@ -1,4 +1,4 @@
 cuda_tut
 ========
 
-Quick tutorial for the computational group, matrix-matrix multiply
+Quick CUDA tutorial for the computational group, matrix-matrix multiply
