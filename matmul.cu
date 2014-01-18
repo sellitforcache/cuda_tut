@@ -131,21 +131,21 @@ int main(){
 	cudaMemcpy( d_b , b , bytes_b , cudaMemcpyHostToDevice );
 	
 	//calculate the number of blocks from the number of threads
-	//NUM_THREADS.x = NUM_THREADS.y = 16;
-	//blks.x = blks.y = (len_a + NUM_THREADS.x - 1 ) / NUM_THREADS.x;
-	//NUM_THREADS.z = blks.z = 1;
-	//printf("NUM_THREADS(%4u,%4u,   0)\n       blks(%4u,%4u,   0)\n",NUM_THREADS.x,NUM_THREADS.y,blks.x,blks.y);
+	NUM_THREADS.x = NUM_THREADS.y = 16;
+	blks.x = blks.y = (len_a + NUM_THREADS.x - 1 ) / NUM_THREADS.x;
+	NUM_THREADS.z = blks.z = 1;
+	printf("NUM_THREADS(%4u,%4u,   0)\n       blks(%4u,%4u,   0)\n",NUM_THREADS.x,NUM_THREADS.y,blks.x,blks.y);
 	// launch kernel to do a*b=c
-	//matmul_kernel <<< blks, NUM_THREADS >>> (len_a , d_a , d_b , d_c);
+	matmul_kernel <<< blks, NUM_THREADS >>> (len_a , d_a , d_b , d_c);
 	// launch kernel for shared memory implementation
 	//calculate the number of blocks from the number of threads
-	NUM_THREADS.x   = NUM_THREADS.y = 2;
-	blks.x = blks.y = (len_a + NUM_THREADS.x - 1 ) / NUM_THREADS.x;
-	NUM_THREADS.z   = blks.z = 1;
-	unsigned shared_mem_size = 2*len_a*NUM_THREADS.x*sizeof(float);
-	printf("NUM_THREADS(%4u,%4u,   0)\n       blks(%4u,%4u,   0)\n",NUM_THREADS.x,NUM_THREADS.y,blks.x,blks.y);
-	printf("shared_mem_size = %u\n",shared_mem_size);
-	matmul_kernel_shared <<< blks, NUM_THREADS , shared_mem_size >>> (len_a , d_a , d_b , d_c);
+	//NUM_THREADS.x   = NUM_THREADS.y = 2;
+	//blks.x = blks.y = (len_a + NUM_THREADS.x - 1 ) / NUM_THREADS.x;
+	//NUM_THREADS.z   = blks.z = 1;
+	//unsigned shared_mem_size = 2*len_a*NUM_THREADS.x*sizeof(float);
+	//printf("NUM_THREADS(%4u,%4u,   0)\n       blks(%4u,%4u,   0)\n",NUM_THREADS.x,NUM_THREADS.y,blks.x,blks.y);
+	//printf("shared_mem_size = %u\n",shared_mem_size);
+	//matmul_kernel_shared <<< blks, NUM_THREADS , shared_mem_size >>> (len_a , d_a , d_b , d_c);
 
 	// check for errors
 	if(cudaPeekAtLastError()){
