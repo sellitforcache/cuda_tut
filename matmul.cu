@@ -2,10 +2,16 @@
 #include <assert.h>
 #include <cuda.h>
 
+/*
+CUDA Tutorial, matrix-matrix multiply
+UC Berkeley Reactor Design and Neutronics Group
+Ryan M. Bergmann - 1/22/2014
+*/
+
 __global__ void matmul_kernel( unsigned len, float* a , float* b , float* c){
 
 	//
-	//  THIS IS THE SIMPLE WAY TO DO IT, NOT THE ***FAST WAY***
+	//  THIS IS THE SIMPLE WAY TO DO IT, NOT THE ***FAST WAY*** -> uses 2*N^3 global loads
 	//
 
 	// get index in c
@@ -31,12 +37,12 @@ __global__ void matmul_kernel( unsigned len, float* a , float* b , float* c){
 
 __global__ void matmul_kernel_shared( unsigned len, float* a , float* b , float* c){
 
-	// take advantage of data resue w shared memory
-	// this method might not be scalable though since there is only 16kb shared mem and usage scales as 2*len*blockDim!
+	// take advantage of data resue w/ shared memory.  Uses tiles and loops over through them.  Global loads now 2N^3/(blockDim.x*blockDim.y)?
+	// Programmed for, but **NOT TESTED** FOR cases where the block dimensions do not line up exactly with the matrix dimensions
 
 	// get index in c
 	int offset_x = blockIdx.x * blockDim.x;
-	int offset_y = blockIdx.y * blockDim.y;
+	int offset_y = blockIdx.y * blockDim.y;	
 	int row = offset_y + threadIdx.y;
 	int col = offset_x + threadIdx.x;
 
@@ -45,33 +51,49 @@ __global__ void matmul_kernel_shared( unsigned len, float* a , float* b , float*
 
 	// initialize local variable to hold values while the sum is done
 	float sum = 0;
-	unsigned j,k;
+	unsigned j,g,sub_a_row,sub_a_col,sub_b_row,sub_b_col,sub_lim_x,sub_lim_y;
+	unsigned n_blocks_x = ( len + blockDim.x - 1 ) / blockDim.x;
+	unsigned n_blocks_y = ( len + blockDim.y - 1 ) / blockDim.y;
 
 	// declare shared memory
 	extern __shared__ float sub_a[];
-	float* sub_b = &sub_a[blockDim.x*len];
+	float* sub_b = &sub_a[blockDim.x*blockDim.y];
 
-	//have 0,0 thread load in data to shared, recast both into row-major
-	if( blockIdx.x+blockIdx.y == 0){
-		// load a
-		for(     j = 0 ; j < min( len - offset_y , blockDim.y ) ; j++){  //j is column
-			for( k = 0 ; k < len ; k++){ // k goes across the row 
-				sub_a[ len * j + k ] = a[ (j+offset_y) * len + k ];
+	//have 0,0 thread load in data to shared
+	for(g=0 ; g < n_blocks_x ; g++){      // tile row
+
+		// compute the global indicies of this submatrix
+		sub_a_row =   offset_y; //const
+		sub_a_col =   g * blockDim.x ;
+		sub_b_row =   g * blockDim.y ;
+		sub_b_col =   offset_x; //const
+
+		// compute limits 
+		sub_lim_x = min( len - sub_a_col , blockDim.x );
+		sub_lim_y = min( len - sub_b_row , blockDim.y );
+
+		// load shared memory
+		if( threadIdx.x+threadIdx.y == 0){
+			// load a row by row (saves programming another loop and dealing with another index, icky)
+			for(     j = 0 ; j < sub_lim_y ; j++){  // j is row
+				memcpy( &sub_a[ j*blockDim.x ], &a[ (sub_a_row+j)*len + sub_a_col ],  sub_lim_x*sizeof(float)); // copy row
+			}
+			// load b row by row
+			for(     j = 0 ; j <  sub_lim_y ; j++){    // j is row
+				memcpy( &sub_b[ j*blockDim.x ], &b[ (sub_b_row+j)*len + sub_b_col ],  sub_lim_x*sizeof(float)); // copy row
 			}
 		}
-		// load b
-		for(     j = 0 ; j < min( len - offset_x , blockDim.x ) ; j++){  // j is column
-			for( k = 0 ; k < len ; k++){ // k goes down the colum
-				sub_b[ len * j + k ] = b[ k * len + (j+offset_y) ];
-			}
+		// sync, other threads need to wait for data
+		__syncthreads();
+		
+		// scan the submatrix, computing partial sum
+		for( j=0 ; j < sub_lim_x ; j++ ){ 
+			sum +=  sub_a[ threadIdx.y*blockDim.x + j ] * sub_b[ j*blockDim.x + threadIdx.x ];
 		}
-	}
-	// sync, other threads need to wait for data
-	__syncthreads();
+	
+		// sync threads again before moving on to next tile
+		__syncthreads();
 
-	// scan the row of a, the col of b using shared mem.
-	for(j=0;j<len;j++){
-		sum +=  sub_a[ (row-offset_y) * len + j ] * sub_b[ (col-offset_x) * len + j  ];
 	}
 
 	// write final value into output array
@@ -131,21 +153,20 @@ int main(){
 	cudaMemcpy( d_b , b , bytes_b , cudaMemcpyHostToDevice );
 	
 	//calculate the number of blocks from the number of threads
-	NUM_THREADS.x = NUM_THREADS.y = 16;
+/*	NUM_THREADS.x = NUM_THREADS.y = 16;
 	blks.x = blks.y = (len_a + NUM_THREADS.x - 1 ) / NUM_THREADS.x;
 	NUM_THREADS.z = blks.z = 1;
 	printf("NUM_THREADS(%4u,%4u,   0)\n       blks(%4u,%4u,   0)\n",NUM_THREADS.x,NUM_THREADS.y,blks.x,blks.y);
 	// launch kernel to do a*b=c
 	matmul_kernel <<< blks, NUM_THREADS >>> (len_a , d_a , d_b , d_c);
-	// launch kernel for shared memory implementation
-	//calculate the number of blocks from the number of threads
-	//NUM_THREADS.x   = NUM_THREADS.y = 2;
-	//blks.x = blks.y = (len_a + NUM_THREADS.x - 1 ) / NUM_THREADS.x;
-	//NUM_THREADS.z   = blks.z = 1;
-	//unsigned shared_mem_size = 2*len_a*NUM_THREADS.x*sizeof(float);
-	//printf("NUM_THREADS(%4u,%4u,   0)\n       blks(%4u,%4u,   0)\n",NUM_THREADS.x,NUM_THREADS.y,blks.x,blks.y);
-	//printf("shared_mem_size = %u\n",shared_mem_size);
-	//matmul_kernel_shared <<< blks, NUM_THREADS , shared_mem_size >>> (len_a , d_a , d_b , d_c);
+*/	// launch kernel for shared memory implementation
+	NUM_THREADS.x   = NUM_THREADS.y = 16;
+	blks.x = blks.y = (len_a + NUM_THREADS.x - 1 ) / NUM_THREADS.x;
+	NUM_THREADS.z   = blks.z = 1;
+	unsigned shared_mem_size = 2*NUM_THREADS.y*NUM_THREADS.x*sizeof(float);
+	printf("NUM_THREADS(%4u,%4u,   0)\n       blks(%4u,%4u,   0)\n",NUM_THREADS.x,NUM_THREADS.y,blks.x,blks.y);
+	printf("shared_mem_size = %u\n",shared_mem_size);
+	matmul_kernel_shared <<< blks, NUM_THREADS , shared_mem_size >>> (len_a , d_a , d_b , d_c);
 
 	// check for errors
 	if(cudaPeekAtLastError()){
