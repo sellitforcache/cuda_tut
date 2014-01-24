@@ -1,12 +1,40 @@
 #include <stdio.h>
 #include <assert.h>
 #include <cuda.h>
+#include <time.h>
+#include <cblas.h>
 
 /*
 CUDA Tutorial, matrix-matrix multiply
 UC Berkeley Reactor Design and Neutronics Group
 Ryan M. Bergmann - 1/22/2014
 */
+
+void matmul_cpu(unsigned len, float* a , float* b , float* c){
+
+	// initialize local variable to hold values while the sum is done
+	float sum;
+	unsigned row,col,k;
+
+	for(col=0 ; col<len ; col++ ){       //scan the rows
+		for(row=0 ; row<len ; row++ ){   //scan the cols
+
+			// zero out sum
+			sum = 0;
+
+			// scan the row of a, the col of b
+			for(k=0;k<len;k++){
+				sum +=  a[ row * len + k ] * b[ k * len + col ];
+			}
+
+			// write final value into output array
+			c[ len * row + col  ] = sum;
+
+		}
+	}
+
+
+}
 
 __global__ void matmul_kernel( unsigned len, float* a , float* b , float* c){
 
@@ -101,6 +129,12 @@ __global__ void matmul_kernel_shared( unsigned len, float* a , float* b , float*
 
 }
 
+float get_time(){
+
+	return ((float)clock())/((float)CLOCKS_PER_SEC);
+
+}
+
 int main(){
 
 	// declare
@@ -111,8 +145,11 @@ int main(){
 	float*		d_b;
 	float*		d_c;
 	unsigned  	len_a, len_b, j, k;
-	unsigned 	bytes_a, bytes_b, bytes_c;
+	unsigned 	bytes_a, bytes_b, bytes_c, shared_mem_size;
 	dim3 		NUM_THREADS, blks;
+
+	// timing variables
+	float 		time_gpu, time_gpu_shared, time_cpu, time_blas;
 
 	//open files, get lengths, make sure they are equal
 	FILE* af = fopen("a","r");
@@ -121,6 +158,7 @@ int main(){
 
 	fscanf(af,"%u\n",&len_a);
 	fscanf(bf,"%u\n",&len_b);
+	printf("------ Matrix Dimensions ------\n");
 	printf("dims a,b = %u , %u\n",len_a,len_b);
 	assert(len_a==len_b);
 	bytes_a = len_a * len_a * sizeof(float);
@@ -148,36 +186,56 @@ int main(){
 	// close files
 	fclose(af); fclose(bf);
 
-	// copy data to device
-	cudaMemcpy( d_a , a , bytes_a , cudaMemcpyHostToDevice );
-	cudaMemcpy( d_b , b , bytes_b , cudaMemcpyHostToDevice );
-	
-	//calculate the number of blocks from the number of threads
-/*	NUM_THREADS.x = NUM_THREADS.y = 16;
-	blks.x = blks.y = (len_a + NUM_THREADS.x - 1 ) / NUM_THREADS.x;
-	NUM_THREADS.z = blks.z = 1;
-	printf("NUM_THREADS(%4u,%4u,   0)\n       blks(%4u,%4u,   0)\n",NUM_THREADS.x,NUM_THREADS.y,blks.x,blks.y);
-	// launch kernel to do a*b=c
-	matmul_kernel <<< blks, NUM_THREADS >>> (len_a , d_a , d_b , d_c);
-*/	// launch kernel for shared memory implementation
+	// determine gpu parameters, print them
 	NUM_THREADS.x   = NUM_THREADS.y = 16;
 	blks.x = blks.y = (len_a + NUM_THREADS.x - 1 ) / NUM_THREADS.x;
 	NUM_THREADS.z   = blks.z = 1;
-	unsigned shared_mem_size = 2*NUM_THREADS.y*NUM_THREADS.x*sizeof(float);
+	shared_mem_size = 2*NUM_THREADS.y*NUM_THREADS.x*sizeof(float);
+	printf("------- CUDA Parameters -------\n");
 	printf("NUM_THREADS(%4u,%4u,   0)\n       blks(%4u,%4u,   0)\n",NUM_THREADS.x,NUM_THREADS.y,blks.x,blks.y);
 	printf("shared_mem_size = %u\n",shared_mem_size);
-	matmul_kernel_shared <<< blks, NUM_THREADS , shared_mem_size >>> (len_a , d_a , d_b , d_c);
+	printf("-------------------------------\n");
 
+	// copy data to device
+	cudaMemcpy( d_a , a , bytes_a , cudaMemcpyHostToDevice );
+	cudaMemcpy( d_b , b , bytes_b , cudaMemcpyHostToDevice );
+
+	// launch cpu version to compare
+	time_cpu = get_time();
+	matmul_cpu(len_a, a, b, c);
+	time_cpu = get_time() - time_cpu;
+	printf("CPU             - %8.7f seconds\n",time_cpu);
+
+	// launch BLAS version for fair comparison
+	time_blas = get_time();
+	cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, len_a, len_a, len_a, 1.0, a, len_a, b, len_a, 0.0, c, len_a);
+	time_blas = get_time() - time_blas;
+	printf("BLAS            - %8.7f seconds\n",time_blas);
+	
+	//calculate the number of blocks from the number of threads
+	time_gpu = get_time();
+	matmul_kernel <<< blks, NUM_THREADS >>> (len_a , d_a , d_b , d_c);
+	time_gpu = get_time() - time_gpu;
+	printf("GPU             - %8.7f seconds\n",time_gpu);
+
+	// launch kernel for shared memory implementation
+	time_gpu_shared = get_time();
+	matmul_kernel_shared <<< blks, NUM_THREADS , shared_mem_size >>> (len_a , d_a , d_b , d_c);
+	time_gpu_shared = get_time() - time_gpu_shared;
+	printf("GPU, shared mem - %8.7f seconds\n",time_gpu_shared);
+	printf("-------------------------------\n");
+	
 	// check for errors
 	if(cudaPeekAtLastError()){
 		printf("CUDA ERROR, %s\n",cudaGetErrorString(cudaPeekAtLastError()));
 		return 1;
 	}
 
-	//copy c back
+	//copy c back, will eb values from last GPU implementation
 	cudaMemcpy( c , d_c , bytes_b , cudaMemcpyDeviceToHost );
 
 	// write a,b,c to files in matrix format to be read by matlab for plotting
+	printf("writing outputs...");
 	af = fopen("a_out","w");
 	bf = fopen("b_out","w");
 	cf = fopen("c_out","w");
@@ -194,6 +252,8 @@ int main(){
 	fclose(af);
 	fclose(bf);
 	fclose(cf);
+	printf(" done.\n");
+	printf("-------------------------------\n");
 
 	// return zero if all ok
 	return 0;
