@@ -154,7 +154,8 @@ int main(){
 	//open files, get lengths, make sure they are equal
 	FILE* af = fopen("a","r");
 	FILE* bf = fopen("b","r");
-	FILE* cf;
+	FILE* cf; 
+	FILE* cff;
 
 	fscanf(af,"%u\n",&len_a);
 	fscanf(bf,"%u\n",&len_b);
@@ -240,6 +241,7 @@ int main(){
 	bf  = fopen("b_matlab","w");
 	cf  = fopen("c_matlab","w");
 	cff = fopen("c","w");
+	fprintf(cff,"%d \n",len_a);
 	for(j=0;j<len_a;j++){
 		for(k=0;k<len_a;k++){
 			fprintf(af,"%10.8E ",a[j*len_a+k]);  //row major
