@@ -129,9 +129,9 @@ __global__ void matmul_kernel_shared( unsigned len, float* a , float* b , float*
 
 }
 
-float get_time(){
+double get_time(){
 
-	return ((float)clock())/((float)CLOCKS_PER_SEC);
+	return ((double)clock())/((double)CLOCKS_PER_SEC);
 
 }
 
@@ -149,7 +149,7 @@ int main(){
 	dim3 		NUM_THREADS, blks;
 
 	// timing variables
-	float 		time_gpu, time_gpu_shared, time_cpu, time_blas;
+	double 		time_gpu, time_gpu_shared, time_cpu, time_blas;
 
 	//open files, get lengths, make sure they are equal
 	FILE* af = fopen("a","r");
@@ -204,25 +204,25 @@ int main(){
 	time_cpu = get_time();
 	matmul_cpu(len_a, a, b, c);
 	time_cpu = get_time() - time_cpu;
-	printf("CPU             - %8.7f seconds\n",time_cpu);
+	printf("CPU             - %9.8f seconds\n",time_cpu);
 
 	// launch BLAS version for fair comparison
 	time_blas = get_time();
 	cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, len_a, len_a, len_a, 1.0, a, len_a, b, len_a, 0.0, c, len_a);
 	time_blas = get_time() - time_blas;
-	printf("BLAS            - %8.7f seconds\n",time_blas);
+	printf("BLAS            - %9.8f seconds\n",time_blas);
 	
 	//calculate the number of blocks from the number of threads
 	time_gpu = get_time();
 	matmul_kernel <<< blks, NUM_THREADS >>> (len_a , d_a , d_b , d_c);
 	time_gpu = get_time() - time_gpu;
-	printf("GPU             - %8.7f seconds\n",time_gpu);
+	printf("GPU             - %9.8f seconds\n",time_gpu);
 
 	// launch kernel for shared memory implementation
 	time_gpu_shared = get_time();
 	matmul_kernel_shared <<< blks, NUM_THREADS , shared_mem_size >>> (len_a , d_a , d_b , d_c);
 	time_gpu_shared = get_time() - time_gpu_shared;
-	printf("GPU, shared mem - %8.7f seconds\n",time_gpu_shared);
+	printf("GPU, shared mem - %9.8f seconds\n",time_gpu_shared);
 	printf("-------------------------------\n");
 	
 	// check for errors
