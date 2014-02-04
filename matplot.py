@@ -13,7 +13,7 @@ f=open(filename,'r')
 strfile=f.read()
 
 mat=np.array(strfile.split(),dtype=np.float)	#interpret split string as floats
-N=mat[0]										#first number is the simension
+N=mat[0]										#first number is the dimension
 mat=mat[1:] 									#clip it off before reshaping
 mat=mat.reshape((N,N),order='C')  				#C is row-major
 

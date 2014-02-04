@@ -102,7 +102,7 @@ __global__ void matmul_kernel_shared( unsigned len, float* a , float* b , float*
 
 		// load shared memory
 		if( threadIdx.x+threadIdx.y == 0){
-			// load a row by row (saves programming another loop and dealing with another index, icky)
+			// load a row by row (saves programming another loop and dealing with another index, icky) also saves having to transpose the second matrix, also icky
 			for(     j = 0 ; j < sub_lim_y ; j++){  // j is row
 				memcpy( &sub_a[ j*blockDim.x ], &a[ (sub_a_row+j)*len + sub_a_col ],  sub_lim_x*sizeof(float)); // copy row
 			}
@@ -234,16 +234,18 @@ int main(){
 	//copy c back, will eb values from last GPU implementation
 	cudaMemcpy( c , d_c , bytes_b , cudaMemcpyDeviceToHost );
 
-	// write a,b,c to files in matrix format to be read by matlab for plotting
+	// write a,b,c to files in matrix format to be read by matlab for plotting as well as a regular flat file for python
 	printf("writing outputs...");
-	af = fopen("a_out","w");
-	bf = fopen("b_out","w");
-	cf = fopen("c_out","w");
+	af  = fopen("a_matlab","w");
+	bf  = fopen("b_matlab","w");
+	cf  = fopen("c_matlab","w");
+	cff = fopen("c","w");
 	for(j=0;j<len_a;j++){
 		for(k=0;k<len_a;k++){
 			fprintf(af,"%10.8E ",a[j*len_a+k]);  //row major
 			fprintf(bf,"%10.8E ",b[j*len_a+k]);
 			fprintf(cf,"%10.8E ",c[j*len_a+k]);
+			fprintf(cff,"%10.8E \n",c[j*len_a+k]);
 		}
 		fprintf(af,"\n"); 
 		fprintf(bf,"\n");
@@ -252,6 +254,7 @@ int main(){
 	fclose(af);
 	fclose(bf);
 	fclose(cf);
+	fclose(cff);
 	printf(" done.\n");
 	printf("-------------------------------\n");
 
