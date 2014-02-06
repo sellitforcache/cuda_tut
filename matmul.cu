@@ -232,7 +232,7 @@ int main(){
 		return 1;
 	}
 
-	//copy c back, will eb values from last GPU implementation
+	//copy c back, will be values from last GPU implementation
 	cudaMemcpy( c , d_c , bytes_b , cudaMemcpyDeviceToHost );
 
 	// write a,b,c to files in matrix format to be read by matlab for plotting as well as a regular flat file for python
